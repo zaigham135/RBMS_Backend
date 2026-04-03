@@ -41,23 +41,23 @@ public class TaskController {
 //    }
 
     @PutMapping("/{taskId}")
-    public ApiResponse<Void> updateTask(@PathVariable Long taskId,
+    public ApiResponse<Void> updateTask(@PathVariable("taskId") Long taskId,
                                         @RequestBody UpdateTaskRequest request) {
         taskService.updateTaskStatus(taskId, request);
         return new ApiResponse<>("success", "Task updated successfully", null);
     }
 
     @DeleteMapping("/{taskId}")
-    public ApiResponse<Void> deleteTask(@PathVariable Long taskId) {
+    public ApiResponse<Void> deleteTask(@PathVariable("taskId") Long taskId) {
         taskService.deleteTask(taskId);
         return new ApiResponse<>("success", "Task deleted successfully", null);
     }
     @GetMapping
     public ApiResponse<PaginationResponse<TaskResponse>> getTasks(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "5") int size,
-            @RequestParam(required = false) Long projectId,
-            @RequestParam(required = false) String status
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "5") int size,
+            @RequestParam(name = "projectId", required = false) Long projectId,
+            @RequestParam(name = "status", required = false) String status
     ) {
 
         return new ApiResponse<>(
@@ -76,7 +76,7 @@ public class TaskController {
 //        );
 //    }
     @GetMapping("/{taskId}")
-    public ApiResponse<TaskDetailsResponse> getTaskById(@PathVariable Long taskId) {
+    public ApiResponse<TaskDetailsResponse> getTaskById(@PathVariable("taskId") Long taskId) {
 
         return new ApiResponse<>(
                 "success",

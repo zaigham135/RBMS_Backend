@@ -27,7 +27,7 @@ public class AdminController {
     }
 
     @PutMapping("/users/{userId}/role")
-    public ApiResponse<Void> updateRole(@PathVariable Long userId,
+    public ApiResponse<Void> updateRole(@PathVariable("userId") Long userId,
                                         @RequestBody UpdateUserRoleRequest request) {
 
         userService.updateUserRole(userId, request.getRole());
@@ -41,25 +41,21 @@ public class AdminController {
         return new ApiResponse<>(
                 "success",
                 "Projects fetched successfully",
-                projectService.getAllProjects()
+                projectService.getAllProjects().getProjects()
         );
     }
 
     @GetMapping("/projects/manager/{managerId}")
-    public ApiResponse<List<ProjectResponse>> getProjectsByManager(@PathVariable Long managerId) {
-
-        return new ApiResponse<>(
-                "success",
-                "Projects fetched successfully",
-                projectService.getProjectsByManager(managerId)
-        );
+    public ApiResponse<List<ProjectResponse>> getProjectsByManager(@PathVariable("managerId") Long managerId) {
+        return new ApiResponse<>("success", "Projects fetched successfully",
+                projectService.getProjectsByManager(managerId).getProjects());
     }
 
     @GetMapping("/projects/paginated")
     public ApiResponse<PaginationResponse<ProjectResponse>> getAllProjects(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "5") int size,
-            @RequestParam(required = false) Long managerId
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "5") int size,
+            @RequestParam(name = "managerId", required = false) Long managerId
     ) {
 
         return new ApiResponse<>(

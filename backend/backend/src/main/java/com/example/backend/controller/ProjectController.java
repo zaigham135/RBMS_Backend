@@ -21,14 +21,14 @@ public class ProjectController {
     }
 
     @PutMapping("/{projectId}")
-    public ApiResponse<Void> updateProject(@PathVariable Long projectId,
+    public ApiResponse<Void> updateProject(@PathVariable("projectId") Long projectId,
                                            @RequestBody UpdateProjectRequest request) {
         projectService.updateProject(projectId, request);
         return new ApiResponse<>("success", "Project updated successfully", null);
     }
 
     @DeleteMapping("/{projectId}")
-    public ApiResponse<Void> deleteProject(@PathVariable Long projectId) {
+    public ApiResponse<Void> deleteProject(@PathVariable("projectId") Long projectId) {
         projectService.deleteProject(projectId);
         return new ApiResponse<>("success", "Project deleted successfully", null);
     }

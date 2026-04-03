@@ -45,4 +45,24 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
             @Param("status") Status status,
             Pageable pageable
     );
+    @Query("""
+    SELECT t FROM Task t
+    LEFT JOIN FETCH t.assignedTo
+    LEFT JOIN FETCH t.project
+    LEFT JOIN FETCH t.createdBy
+    WHERE t.assignedTo.id = :userId
+""")
+    Page<Task> findTasksWithRelations(@Param("userId") Long userId, Pageable pageable);
+    @Query("""
+    SELECT DISTINCT t FROM Task t
+    LEFT JOIN FETCH t.assignedTo
+    LEFT JOIN FETCH t.project
+    LEFT JOIN FETCH t.createdBy
+    WHERE t.assignedTo.id = :userId AND t.status = :status
+""")
+    Page<Task> findTasksWithRelationsAndStatus(
+            @Param("userId") Long userId,
+            @Param("status") Status status,
+            Pageable pageable
+    );
 }

@@ -5,7 +5,11 @@ import com.example.backend.Entities.User;
 import com.example.backend.dto.request.CreateProjectRequest;
 import com.example.backend.dto.request.UpdateProjectRequest;
 import com.example.backend.dto.response.PaginationResponse;
+import com.example.backend.dto.response.ProjectListResponse;
 import com.example.backend.dto.response.ProjectResponse;
+import com.example.backend.event.ProjectAssignedEvent;
+import com.example.backend.event.ProjectDeletedEvent;
+import com.example.backend.event.ProjectUpdatedEvent;
 import com.example.backend.exception.BadRequestException;
 import com.example.backend.exception.ResourceNotFoundException;
 import com.example.backend.exception.UnauthorizedException;
@@ -13,6 +17,9 @@ import com.example.backend.repository.ProjectRepository;
 import com.example.backend.repository.UserRepository;
 import com.example.backend.service.ProjectService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -30,6 +37,9 @@ public class ProjectServiceImpl implements ProjectService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private ApplicationEventPublisher publisher;
+
     private User getCurrentUser() {
         Object principal = SecurityContextHolder
                 .getContext()
@@ -43,7 +53,6 @@ public class ProjectServiceImpl implements ProjectService {
         throw new UnauthorizedException("Invalid authentication");
     }
 
-    // ✅ reusable mapper
     private ProjectResponse mapToResponse(Project p) {
         return new ProjectResponse(
                 p.getId(),
@@ -55,6 +64,7 @@ public class ProjectServiceImpl implements ProjectService {
         );
     }
 
+    @CacheEvict(value = "projects", allEntries = true) // ✅ clears cache on create
     @Override
     public void createProject(CreateProjectRequest request) {
 
@@ -75,8 +85,9 @@ public class ProjectServiceImpl implements ProjectService {
         project.setManager(manager);
 
         projectRepository.save(project);
-    }
 
+        publisher.publishEvent(new ProjectAssignedEvent(manager.getEmail(), project.getName()));
+    }
     @Override
     public void updateProject(Long projectId, UpdateProjectRequest request) {
 
@@ -87,7 +98,7 @@ public class ProjectServiceImpl implements ProjectService {
 
         if ("MANAGER".equals(currentUser.getRole().name()) &&
                 !project.getManager().getId().equals(currentUser.getId())) {
-            throw new UnauthorizedException("You can only update your own project");
+            throw new UnauthorizedException("Access denied");
         }
 
         if (request.getName() != null) {
@@ -98,8 +109,9 @@ public class ProjectServiceImpl implements ProjectService {
         }
 
         projectRepository.save(project);
-    }
 
+        publisher.publishEvent(new ProjectUpdatedEvent(project.getManager().getEmail(), project.getName()));
+    }
     @Override
     public void deleteProject(Long projectId) {
 
@@ -109,67 +121,100 @@ public class ProjectServiceImpl implements ProjectService {
         User currentUser = getCurrentUser();
 
         if (!"ADMIN".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Only admin can delete a project");
+            throw new UnauthorizedException("Access denied");
         }
 
-        projectRepository.delete(project);
-    }
+        String managerEmail = project.getManager() != null ? project.getManager().getEmail() : null;
+        String projectName = project.getName();
 
+        projectRepository.delete(project);
+
+        if (managerEmail != null) {
+            publisher.publishEvent(new ProjectDeletedEvent(managerEmail, projectName));
+        }
+    }
+    @Cacheable(
+            value = "projects",
+            key = "'all-' + T(org.springframework.security.core.context.SecurityContextHolder)" +
+                    ".getContext().getAuthentication().getName()"
+    )
     @Override
-    public List<ProjectResponse> getAllProjects() {
+    public ProjectListResponse getAllProjects() {
 
         User currentUser = getCurrentUser();
 
         if (!"ADMIN".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Only admin can view all projects");
+            throw new UnauthorizedException("Access denied");
         }
 
-        return projectRepository.findAll()
+        List<ProjectResponse> list = projectRepository.findAll()
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
+
+        return new ProjectListResponse(list);
     }
 
+    @Cacheable(
+            value = "projects",
+            key = "'manager-' + T(org.springframework.security.core.context.SecurityContextHolder)" +
+                    ".getContext().getAuthentication().getName()"
+    )
     @Override
-    public List<ProjectResponse> getProjectsForManager() {
+    public ProjectListResponse getProjectsForManager() {
 
         User currentUser = getCurrentUser();
 
         if (!"MANAGER".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Only manager can view their projects");
+            throw new UnauthorizedException("Access denied");
         }
 
-        return projectRepository.findByManagerId(currentUser.getId())
+        List<ProjectResponse> list = projectRepository.findByManagerId(currentUser.getId())
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
+
+        return new ProjectListResponse(list);
     }
 
+    @Cacheable(
+            value = "projects",
+            key = "'by-manager-' + #managerId"
+    )
     @Override
-    public List<ProjectResponse> getProjectsByManager(Long managerId) {
+    public ProjectListResponse getProjectsByManager(Long managerId) {
 
         User currentUser = getCurrentUser();
 
         if (!"ADMIN".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Only admin can view projects by manager");
+            throw new UnauthorizedException("Access denied");
         }
 
         userRepository.findById(managerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Manager not found"));
 
-        return projectRepository.findByManagerId(managerId)
+        List<ProjectResponse> list = projectRepository.findByManagerId(managerId)
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
+
+        return new ProjectListResponse(list);
     }
 
+    // ✅ fixed cache key — uses actual method params
+    @Cacheable(
+            value = "projects",
+            key = "#page + '-' + #size + '-' + #managerId + '-' + " +
+                    "T(org.springframework.security.core.context.SecurityContextHolder)" +
+                    ".getContext().getAuthentication().getName()"
+    )
     @Override
     public PaginationResponse<ProjectResponse> getAllProjects(int page, int size, Long managerId) {
 
         User currentUser = getCurrentUser();
-
+        System.out.println("CACHE TEST - METHOD EXECUTED");
         if (!"ADMIN".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Only admin can view projects");
+            throw new UnauthorizedException("Access denied");
         }
 
         Pageable pageable = PageRequest.of(page, size);

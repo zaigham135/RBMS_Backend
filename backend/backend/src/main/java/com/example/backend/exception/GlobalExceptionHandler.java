@@ -2,6 +2,7 @@ package com.example.backend.exception;
 
 import com.example.backend.dto.response.ErrorResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -140,6 +141,18 @@ public class GlobalExceptionHandler {
                 "error",
                 "Database error occurred",
                 java.time.LocalDateTime.now()
+        );
+    }
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotWritableException.class)
+    public ResponseEntity<ErrorResponse> handleSerialization(Exception ex) {
+
+        return new ResponseEntity<>(
+                new ErrorResponse(
+                        "error",
+                        "Response serialization failed",
+                        LocalDateTime.now()
+                ),
+                HttpStatus.INTERNAL_SERVER_ERROR
         );
     }
 }

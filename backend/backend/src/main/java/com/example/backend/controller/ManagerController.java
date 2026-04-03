@@ -24,7 +24,7 @@ public class ManagerController {
 
     @GetMapping("/my-projects")
     public ApiResponse<List<ProjectResponse>> getMyProjects() {
-        List<ProjectResponse> projects = projectService.getProjectsForManager();
-        return new ApiResponse<>("success", "Projects fetched successfully", projects);
+        return new ApiResponse<>("success", "Projects fetched successfully",
+                projectService.getProjectsForManager().getProjects());
     }
 }
