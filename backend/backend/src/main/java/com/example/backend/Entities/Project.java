@@ -32,4 +32,6 @@ public class Project {
     private User manager;
 
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    private java.time.LocalDate dueDate;
 }

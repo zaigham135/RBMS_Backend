@@ -23,6 +23,8 @@ import com.example.backend.repository.ProjectRepository;
 import com.example.backend.repository.TaskRepository;
 import com.example.backend.repository.UserRepository;
 import com.example.backend.service.TaskService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -39,6 +41,8 @@ import java.util.List;
 
 @Service
 public class TaskServiceImpl implements TaskService {
+
+    private static final Logger log = LoggerFactory.getLogger(TaskServiceImpl.class);
 
     @Autowired
     private TaskRepository taskRepository;
@@ -80,9 +84,14 @@ public class TaskServiceImpl implements TaskService {
                 task.getDueDate(),
                 task.getProject() != null ? task.getProject().getId() : null,
                 task.getProject() != null ? task.getProject().getName() : null,
+                task.getProject() != null && task.getProject().getManager() != null ? task.getProject().getManager().getId() : null,
+                task.getProject() != null && task.getProject().getManager() != null ? task.getProject().getManager().getName() : null,
+                task.getProject() != null && task.getProject().getManager() != null ? task.getProject().getManager().getEmail() : null,
+                task.getProject() != null && task.getProject().getManager() != null ? task.getProject().getManager().getProfilePhoto() : null,
                 task.getAssignedTo() != null ? task.getAssignedTo().getId() : null,
                 task.getAssignedTo() != null ? task.getAssignedTo().getName() : null,
                 task.getAssignedTo() != null ? task.getAssignedTo().getEmail() : null,
+                task.getAssignedTo() != null ? task.getAssignedTo().getProfilePhoto() : null,
                 task.getCreatedBy() != null ? task.getCreatedBy().getId() : null,
                 task.getCreatedBy() != null ? task.getCreatedBy().getName() : null,
                 task.getCreatedAt(),
@@ -114,6 +123,10 @@ public class TaskServiceImpl implements TaskService {
         User assignedUser = userRepository.findById(request.getAssignedTo())
                 .orElseThrow(() -> new ResourceNotFoundException("Assigned user not found"));
 
+        if ("INACTIVE".equals(assignedUser.getStatus())) {
+            throw new BadRequestException("Cannot assign task to a deactivated user");
+        }
+
         Task task = new Task();
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
@@ -134,13 +147,10 @@ public class TaskServiceImpl implements TaskService {
         }
 
         taskRepository.save(task);
+        log.info("Task created: id={}, title={}, assignedTo={}, project={}", task.getId(), task.getTitle(), assignedUser.getEmail(), project.getName());
 
         // notify assigned user via async email
-        publisher.publishEvent(new TaskAssignedEvent(
-                assignedUser.getEmail(),
-                task.getTitle(),
-                project.getName()
-        ));
+        publisher.publishEvent(new TaskAssignedEvent(assignedUser.getEmail(), task.getTitle(), project.getName()));
     }
 
 //    @Override
@@ -208,17 +218,22 @@ public class TaskServiceImpl implements TaskService {
                 .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
 
         if ("EMPLOYEE".equals(role)) {
-            if (task.getAssignedTo() == null ||
-                    !task.getAssignedTo().getId().equals(currentUser.getId())) {
+            boolean isAssigned = task.getAssignedTo() != null &&
+                    task.getAssignedTo().getId().equals(currentUser.getId());
+            boolean isCreator = task.getCreatedBy() != null &&
+                    task.getCreatedBy().getId().equals(currentUser.getId());
+            if (!isAssigned && !isCreator) {
                 throw new UnauthorizedException("Access denied");
             }
         } else if ("MANAGER".equals(role)) {
-            boolean isManagerProject =
+            boolean isManagerProject = task.getProject() != null &&
+                    task.getProject().getManager() != null &&
                     task.getProject().getManager().getId().equals(currentUser.getId());
-            boolean isAssigned =
-                    task.getAssignedTo() != null &&
-                            task.getAssignedTo().getId().equals(currentUser.getId());
-            if (!isManagerProject && !isAssigned) {
+            boolean isAssigned = task.getAssignedTo() != null &&
+                    task.getAssignedTo().getId().equals(currentUser.getId());
+            boolean isCreator = task.getCreatedBy() != null &&
+                    task.getCreatedBy().getId().equals(currentUser.getId());
+            if (!isManagerProject && !isAssigned && !isCreator) {
                 throw new UnauthorizedException("Access denied");
             }
         }
@@ -230,6 +245,7 @@ public class TaskServiceImpl implements TaskService {
                         c.getId(),
                         c.getCommentText(),
                         c.getUser().getName(),
+                        c.getUser().getProfilePhoto(),
                         c.getCreatedAt()
                 ))
                 .toList();
@@ -240,6 +256,29 @@ public class TaskServiceImpl implements TaskService {
         response.setDescription(task.getDescription());
         response.setStatus(task.getStatus().name());
         response.setPriority(task.getPriority().name());
+        response.setDueDate(task.getDueDate());
+        response.setCreatedAt(task.getCreatedAt());
+
+        if (task.getProject() != null) {
+            response.setProjectId(task.getProject().getId());
+            response.setProjectName(task.getProject().getName());
+            if (task.getProject().getManager() != null) {
+                response.setManagerId(task.getProject().getManager().getId());
+                response.setManagerName(task.getProject().getManager().getName());
+                response.setManagerEmail(task.getProject().getManager().getEmail());
+                response.setManagerPhoto(task.getProject().getManager().getProfilePhoto());
+            }
+        }
+        if (task.getAssignedTo() != null) {
+            response.setAssignedToId(task.getAssignedTo().getId());
+            response.setAssignedToName(task.getAssignedTo().getName());
+            response.setAssignedToEmail(task.getAssignedTo().getEmail());
+            response.setAssignedToPhoto(task.getAssignedTo().getProfilePhoto());
+        }
+        if (task.getCreatedBy() != null) {
+            response.setCreatedById(task.getCreatedBy().getId());
+            response.setCreatedByName(task.getCreatedBy().getName());
+        }
         response.setComments(comments);
 
         return response;
@@ -255,7 +294,9 @@ public class TaskServiceImpl implements TaskService {
         // ✅ validate BEFORE doing anything
         if (request.getStatus() == null &&
                 request.getDescription() == null &&
-                request.getComment() == null) {
+                request.getComment() == null &&
+                request.getDueDate() == null &&
+                (request.getPriority() == null || request.getPriority().isBlank())) {
             throw new BadRequestException("Nothing to update");
         }
 
@@ -287,6 +328,39 @@ public class TaskServiceImpl implements TaskService {
             task.setDescription(request.getDescription());
         }
 
+        // manager-only fields: dueDate and priority
+        boolean isManager = "MANAGER".equals(role);
+        boolean isAdmin = "ADMIN".equals(role);
+
+        // check if manager owns the project of this task
+        boolean isProjectManager = isManager && task.getProject() != null &&
+                task.getProject().getManager() != null &&
+                task.getProject().getManager().getId().equals(currentUser.getId());
+
+        // check if manager is assigned to this task (acting as employee)
+        boolean isAssignedManager = isManager && task.getAssignedTo() != null &&
+                task.getAssignedTo().getId().equals(currentUser.getId());
+
+        // block manager from updating tasks they have no relation to
+        if (isManager && !isProjectManager && !isAssignedManager) {
+            throw new UnauthorizedException("Access denied");
+        }
+
+        // dueDate and priority: only project manager or admin can change
+        if (request.getDueDate() != null || (request.getPriority() != null && !request.getPriority().isBlank())) {
+            if (!isProjectManager && !isAdmin) {
+                throw new UnauthorizedException("Only the project manager or admin can update due date and priority");
+            }
+            if (request.getDueDate() != null) task.setDueDate(request.getDueDate());
+            if (request.getPriority() != null) {
+                try {
+                    task.setPriority(Priority.valueOf(request.getPriority().toUpperCase()));
+                } catch (IllegalArgumentException e) {
+                    throw new BadRequestException("Invalid priority. Allowed: LOW, MEDIUM, HIGH");
+                }
+            }
+        }
+
         taskRepository.save(task);
 
         // save comment after task is saved
@@ -301,12 +375,8 @@ public class TaskServiceImpl implements TaskService {
         // notify manager only when an EMPLOYEE updates the task status
         if (isEmployee && request.getStatus() != null && task.getProject().getManager() != null) {
             String managerEmail = task.getProject().getManager().getEmail();
-            System.out.println("===> Sending email to manager: " + managerEmail + " | updated by: " + currentUser.getEmail());
-            publisher.publishEvent(new TaskUpdatedEvent(
-                    managerEmail,
-                    task.getTitle(),
-                    task.getStatus().name()
-            ));
+            log.info("Task status updated by employee: taskId={}, updatedBy={}, newStatus={}, notifyingManager={}", taskId, currentUser.getEmail(), task.getStatus(), managerEmail);
+            publisher.publishEvent(new TaskUpdatedEvent(managerEmail, task.getTitle(), task.getStatus().name()));
         }
     }
 
@@ -339,6 +409,7 @@ public class TaskServiceImpl implements TaskService {
 
         commentRepository.deleteByTaskId(taskId);
         taskRepository.delete(task);
+        log.info("Task deleted: id={}, title={}, deletedBy={}", taskId, taskTitle, currentUser.getEmail());
 
         if (assignedEmail != null) {
             publisher.publishEvent(new TaskDeletedEvent(assignedEmail, taskTitle));
@@ -359,7 +430,7 @@ public class TaskServiceImpl implements TaskService {
         String role = currentUser.getRole().name();
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        System.out.println("===> DB HIT - not from cache");
+        log.debug("Fetching tasks: page={}, size={}, projectId={}, status={}, role={} (cache miss)", page, size, projectId, status, role);
         Status statusEnum = null;
         if (status != null) {
             try {

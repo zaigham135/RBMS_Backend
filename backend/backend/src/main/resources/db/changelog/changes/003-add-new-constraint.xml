@@ -8,5 +8,38 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
 
     <!-- Future changes -->
+    <changeSet id="1" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="users" columnName="password"/>
+        </preConditions>
+        <dropNotNullConstraint tableName="users" columnName="password" columnDataType="VARCHAR(255)"/>
+        <rollback>
+            <addNotNullConstraint tableName="users" columnName="password" columnDataType="VARCHAR(255)" defaultNullValue=""/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="2" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="users" columnName="google_id"/></not>
+        </preConditions>
+        <addColumn tableName="users">
+            <column name="google_id" type="VARCHAR(255)"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="users" columnName="google_id"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="3" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="users" columnName="profile_photo"/></not>
+        </preConditions>
+        <addColumn tableName="users">
+            <column name="profile_photo" type="VARCHAR(500)"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="users" columnName="profile_photo"/>
+        </rollback>
+    </changeSet>
 
 </databaseChangeLog>

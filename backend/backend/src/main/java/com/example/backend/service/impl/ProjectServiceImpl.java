@@ -16,6 +16,8 @@ import com.example.backend.exception.UnauthorizedException;
 import com.example.backend.repository.ProjectRepository;
 import com.example.backend.repository.UserRepository;
 import com.example.backend.service.ProjectService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -31,6 +33,8 @@ import java.util.List;
 @Service
 public class ProjectServiceImpl implements ProjectService {
 
+    private static final Logger log = LoggerFactory.getLogger(ProjectServiceImpl.class);
+
     @Autowired
     private ProjectRepository projectRepository;
 
@@ -41,11 +45,7 @@ public class ProjectServiceImpl implements ProjectService {
     private ApplicationEventPublisher publisher;
 
     private User getCurrentUser() {
-        Object principal = SecurityContextHolder
-                .getContext()
-                .getAuthentication()
-                .getPrincipal();
-
+        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         if (principal instanceof String email) {
             return userRepository.findByEmail(email)
                     .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -55,18 +55,19 @@ public class ProjectServiceImpl implements ProjectService {
 
     private ProjectResponse mapToResponse(Project p) {
         return new ProjectResponse(
-                p.getId(),
-                p.getName(),
-                p.getDescription(),
+                p.getId(), p.getName(), p.getDescription(),
                 p.getManager() != null ? p.getManager().getId() : null,
                 p.getManager() != null ? p.getManager().getName() : null,
-                p.getManager() != null ? p.getManager().getEmail() : null
+                p.getManager() != null ? p.getManager().getEmail() : null,
+                p.getManager() != null ? p.getManager().getProfilePhoto() : null,
+                p.getDueDate()
         );
     }
 
-    @CacheEvict(value = "projects", allEntries = true) // ✅ clears cache on create
+    @CacheEvict(value = "projects", allEntries = true)
     @Override
     public void createProject(CreateProjectRequest request) {
+        log.info("Creating project: name={}", request.getName());
 
         if (request.getName() == null || request.getName().isBlank()) {
             throw new BadRequestException("Project name is required");
@@ -76,20 +77,35 @@ public class ProjectServiceImpl implements ProjectService {
                 .orElseThrow(() -> new ResourceNotFoundException("Manager not found"));
 
         if (!"MANAGER".equals(manager.getRole().name())) {
+            log.warn("User id={} is not a manager, role={}", manager.getId(), manager.getRole());
             throw new BadRequestException("Assigned user is not a manager");
+        }
+
+        if ("INACTIVE".equals(manager.getStatus())) {
+            throw new BadRequestException("Cannot assign project to a deactivated manager");
+        }
+
+        long projectCount = projectRepository.countByManagerId(manager.getId());
+        if (projectCount >= 3) {
+            throw new BadRequestException("Manager already has 3 projects. Maximum limit reached");
         }
 
         Project project = new Project();
         project.setName(request.getName());
         project.setDescription(request.getDescription());
         project.setManager(manager);
+        if (request.getDueDate() != null) project.setDueDate(request.getDueDate());
 
         projectRepository.save(project);
+        log.info("Project created: id={}, name={}, managerId={}", project.getId(), project.getName(), manager.getId());
 
         publisher.publishEvent(new ProjectAssignedEvent(manager.getEmail(), project.getName()));
     }
+
+    @CacheEvict(value = "projects", allEntries = true)
     @Override
     public void updateProject(Long projectId, UpdateProjectRequest request) {
+        log.info("Updating project: projectId={}", projectId);
 
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new ResourceNotFoundException("Project not found"));
@@ -98,22 +114,30 @@ public class ProjectServiceImpl implements ProjectService {
 
         if ("MANAGER".equals(currentUser.getRole().name()) &&
                 !project.getManager().getId().equals(currentUser.getId())) {
+            log.warn("Unauthorized update attempt: userId={}, projectId={}", currentUser.getId(), projectId);
             throw new UnauthorizedException("Access denied");
         }
 
-        if (request.getName() != null) {
-            project.setName(request.getName());
-        }
-        if (request.getDescription() != null) {
-            project.setDescription(request.getDescription());
+        if (request.getName() != null) project.setName(request.getName());
+        if (request.getDescription() != null) project.setDescription(request.getDescription());
+        // only ADMIN can update due date
+        if (request.getDueDate() != null) {
+            if (!"ADMIN".equals(currentUser.getRole().name())) {
+                throw new UnauthorizedException("Only admin can update project due date");
+            }
+            project.setDueDate(request.getDueDate());
         }
 
         projectRepository.save(project);
+        log.info("Project updated: id={}, name={}", project.getId(), project.getName());
 
         publisher.publishEvent(new ProjectUpdatedEvent(project.getManager().getEmail(), project.getName()));
     }
+
+    @CacheEvict(value = "projects", allEntries = true)
     @Override
     public void deleteProject(Long projectId) {
+        log.info("Deleting project: projectId={}", projectId);
 
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new ResourceNotFoundException("Project not found"));
@@ -121,6 +145,7 @@ public class ProjectServiceImpl implements ProjectService {
         User currentUser = getCurrentUser();
 
         if (!"ADMIN".equals(currentUser.getRole().name())) {
+            log.warn("Unauthorized delete attempt: userId={}, projectId={}", currentUser.getId(), projectId);
             throw new UnauthorizedException("Access denied");
         }
 
@@ -128,112 +153,69 @@ public class ProjectServiceImpl implements ProjectService {
         String projectName = project.getName();
 
         projectRepository.delete(project);
+        log.info("Project deleted: id={}, name={}", projectId, projectName);
 
         if (managerEmail != null) {
             publisher.publishEvent(new ProjectDeletedEvent(managerEmail, projectName));
         }
     }
-    @Cacheable(
-            value = "projects",
-            key = "'all-' + T(org.springframework.security.core.context.SecurityContextHolder)" +
-                    ".getContext().getAuthentication().getName()"
-    )
+
+    @Cacheable(value = "projects",
+            key = "'all-' + T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName()")
     @Override
     public ProjectListResponse getAllProjects() {
-
+        log.debug("Fetching all projects (cache miss)");
         User currentUser = getCurrentUser();
+        if (!"ADMIN".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
 
-        if (!"ADMIN".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Access denied");
-        }
-
-        List<ProjectResponse> list = projectRepository.findAll()
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
-
+        List<ProjectResponse> list = projectRepository.findAll().stream().map(this::mapToResponse).toList();
+        log.debug("Fetched {} projects", list.size());
         return new ProjectListResponse(list);
     }
 
-    @Cacheable(
-            value = "projects",
-            key = "'manager-' + T(org.springframework.security.core.context.SecurityContextHolder)" +
-                    ".getContext().getAuthentication().getName()"
-    )
+    @Cacheable(value = "projects",
+            key = "'manager-' + T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName()")
     @Override
     public ProjectListResponse getProjectsForManager() {
-
+        log.debug("Fetching projects for manager (cache miss)");
         User currentUser = getCurrentUser();
+        if (!"MANAGER".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
 
-        if (!"MANAGER".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Access denied");
-        }
-
-        List<ProjectResponse> list = projectRepository.findByManagerId(currentUser.getId())
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
-
+        List<ProjectResponse> list = projectRepository.findByManagerId(currentUser.getId()).stream().map(this::mapToResponse).toList();
+        log.debug("Fetched {} projects for managerId={}", list.size(), currentUser.getId());
         return new ProjectListResponse(list);
     }
 
-    @Cacheable(
-            value = "projects",
-            key = "'by-manager-' + #managerId"
-    )
+    @Cacheable(value = "projects", key = "'by-manager-' + #managerId")
     @Override
     public ProjectListResponse getProjectsByManager(Long managerId) {
-
+        log.debug("Fetching projects by managerId={} (cache miss)", managerId);
         User currentUser = getCurrentUser();
+        if (!"ADMIN".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
 
-        if (!"ADMIN".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Access denied");
-        }
-
-        userRepository.findById(managerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Manager not found"));
-
-        List<ProjectResponse> list = projectRepository.findByManagerId(managerId)
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
-
+        userRepository.findById(managerId).orElseThrow(() -> new ResourceNotFoundException("Manager not found"));
+        List<ProjectResponse> list = projectRepository.findByManagerId(managerId).stream().map(this::mapToResponse).toList();
+        log.debug("Fetched {} projects for managerId={}", list.size(), managerId);
         return new ProjectListResponse(list);
     }
 
-    // ✅ fixed cache key — uses actual method params
-    @Cacheable(
-            value = "projects",
-            key = "#page + '-' + #size + '-' + #managerId + '-' + " +
-                    "T(org.springframework.security.core.context.SecurityContextHolder)" +
-                    ".getContext().getAuthentication().getName()"
-    )
+    @Cacheable(value = "projects",
+            key = "#page + '-' + #size + '-' + #managerId + '-' + T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName()")
     @Override
     public PaginationResponse<ProjectResponse> getAllProjects(int page, int size, Long managerId) {
-
+        log.debug("Fetching paginated projects: page={}, size={}, managerId={} (cache miss)", page, size, managerId);
         User currentUser = getCurrentUser();
-        System.out.println("CACHE TEST - METHOD EXECUTED");
-        if (!"ADMIN".equals(currentUser.getRole().name())) {
-            throw new UnauthorizedException("Access denied");
-        }
+        if (!"ADMIN".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
 
         Pageable pageable = PageRequest.of(page, size);
-
         Page<Project> projectPage = managerId != null
                 ? projectRepository.findByManagerId(managerId, pageable)
                 : projectRepository.findAll(pageable);
 
-        List<ProjectResponse> projectList = projectPage.getContent()
-                .stream()
-                .map(this::mapToResponse)
-                .toList();
+        List<ProjectResponse> projectList = projectPage.getContent().stream().map(this::mapToResponse).toList();
+        log.debug("Fetched {} projects (total={})", projectList.size(), projectPage.getTotalElements());
 
-        return new PaginationResponse<>(
-                projectList,
-                projectPage.getNumber(),
-                projectPage.getSize(),
-                projectPage.getTotalElements(),
-                projectPage.getTotalPages()
-        );
+        return new PaginationResponse<>(projectList, projectPage.getNumber(), projectPage.getSize(),
+                projectPage.getTotalElements(), projectPage.getTotalPages());
     }
 }

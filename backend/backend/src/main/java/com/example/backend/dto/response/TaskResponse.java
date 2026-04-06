@@ -26,10 +26,17 @@ public class TaskResponse implements Serializable {
     private Long projectId;
     private String projectName;
 
+    // project manager info
+    private Long managerId;
+    private String managerName;
+    private String managerEmail;
+    private String managerPhoto;
+
     // assigned user info
     private Long assignedToId;
     private String assignedToName;
     private String assignedToEmail;
+    private String assignedToPhoto;
 
     // created by info
     private Long createdById;

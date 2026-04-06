@@ -1,6 +1,8 @@
 package com.example.backend.exception;
 
 import com.example.backend.dto.response.ErrorResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -24,45 +26,47 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    // 404 - resource not found (your custom)
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(ResourceNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ErrorResponse handleNotFound(ResourceNotFoundException ex) {
+        log.warn("Resource not found: {}", ex.getMessage());
         return new ErrorResponse("error", ex.getMessage(), LocalDateTime.now());
     }
 
-    // 400 - bad request (your custom)
     @ExceptionHandler(BadRequestException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleBadRequest(BadRequestException ex) {
+        log.warn("Bad request: {}", ex.getMessage());
         return new ErrorResponse("error", ex.getMessage(), LocalDateTime.now());
     }
 
-    // 403 - forbidden (your custom)
     @ExceptionHandler(UnauthorizedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ErrorResponse handleUnauthorized(UnauthorizedException ex) {
+        log.warn("Unauthorized: {}", ex.getMessage());
         return new ErrorResponse("error", ex.getMessage(), LocalDateTime.now());
     }
 
-    // 403 - Spring Security access denied
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ErrorResponse handleAccessDenied(AccessDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
         return new ErrorResponse("error", "Access denied", LocalDateTime.now());
     }
 
-    // 401 - Spring Security authentication failed
     @ExceptionHandler(AuthenticationException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ErrorResponse handleAuthentication(AuthenticationException ex) {
+        log.warn("Authentication failed: {}", ex.getMessage());
         return new ErrorResponse("error", "Authentication failed", LocalDateTime.now());
     }
 
-    // 401 - bad credentials (wrong password)
     @ExceptionHandler(BadCredentialsException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ErrorResponse handleBadCredentials(BadCredentialsException ex) {
+        log.warn("Bad credentials attempt");
         return new ErrorResponse("error", "Invalid email or password", LocalDateTime.now());
     }
 
@@ -131,7 +135,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorResponse handleGlobal(Exception ex) {
-        ex.printStackTrace(); // server-side log only, never exposed to client
+        log.error("Unhandled exception: {}", ex.getMessage(), ex);
         return new ErrorResponse("error", "An internal server error occurred", LocalDateTime.now());
     }
     @ExceptionHandler(org.springframework.dao.DataAccessException.class)

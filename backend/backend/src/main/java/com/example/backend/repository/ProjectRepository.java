@@ -11,4 +11,5 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     List<Project> findByManagerId(Long managerId);
     List<Project> findByManagerIsNotNull();
     Page<Project> findByManagerId(Long managerId, Pageable pageable);
+    long countByManagerId(Long managerId);
 }

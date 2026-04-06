@@ -4,12 +4,14 @@ import com.example.backend.dto.request.UpdateUserRoleRequest;
 import com.example.backend.dto.response.ApiResponse;
 import com.example.backend.dto.response.PaginationResponse;
 import com.example.backend.dto.response.ProjectResponse;
+import com.example.backend.dto.response.UserResponse;
 import com.example.backend.service.ProjectService;
 import com.example.backend.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -29,20 +31,27 @@ public class AdminController {
     @PutMapping("/users/{userId}/role")
     public ApiResponse<Void> updateRole(@PathVariable("userId") Long userId,
                                         @RequestBody UpdateUserRoleRequest request) {
-
         userService.updateUserRole(userId, request.getRole());
-
         return new ApiResponse<>("success", "User role updated successfully", null);
+    }
+
+    @GetMapping("/employees")
+    public ApiResponse<List<UserResponse>> getAllEmployees() {
+        return new ApiResponse<>("success", "Employees fetched successfully",
+                userService.getAllEmployees());
+    }
+
+    @PutMapping("/users/{userId}/status")
+    public ApiResponse<Void> updateUserStatus(@PathVariable("userId") Long userId,
+                                              @RequestBody Map<String, String> body) {
+        userService.setUserStatus(userId, body.get("status"));
+        return new ApiResponse<>("success", "User status updated successfully", null);
     }
 
     @GetMapping("/projects")
     public ApiResponse<List<ProjectResponse>> getAllProjects() {
-
-        return new ApiResponse<>(
-                "success",
-                "Projects fetched successfully",
-                projectService.getAllProjects().getProjects()
-        );
+        return new ApiResponse<>("success", "Projects fetched successfully",
+                projectService.getAllProjects().getProjects());
     }
 
     @GetMapping("/projects/manager/{managerId}")
@@ -52,16 +61,11 @@ public class AdminController {
     }
 
     @GetMapping("/projects/paginated")
-    public ApiResponse<PaginationResponse<ProjectResponse>> getAllProjects(
+    public ApiResponse<PaginationResponse<ProjectResponse>> getAllProjectsPaginated(
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "5") int size,
-            @RequestParam(name = "managerId", required = false) Long managerId
-    ) {
-
-        return new ApiResponse<>(
-                "success",
-                "Projects fetched successfully",
-                projectService.getAllProjects(page, size, managerId)
-        );
+            @RequestParam(name = "managerId", required = false) Long managerId) {
+        return new ApiResponse<>("success", "Projects fetched successfully",
+                projectService.getAllProjects(page, size, managerId));
     }
 }
