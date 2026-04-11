@@ -7,10 +7,13 @@ import com.example.backend.Entities.User;
 import com.example.backend.dto.request.CreateTaskRequest;
 import com.example.backend.dto.request.UpdateTaskRequest;
 import com.example.backend.dto.response.CommentResponse;
+import com.example.backend.dto.response.ManagerDashboardStatsResponse;
 import com.example.backend.dto.response.PaginationResponse;
+import com.example.backend.dto.response.TaskCompletionTrendPoint;
 import com.example.backend.dto.response.TaskDetailsResponse;
 import com.example.backend.dto.response.TaskResponse;
 import com.example.backend.enums.Priority;
+import com.example.backend.enums.Role;
 import com.example.backend.enums.Status;
 import com.example.backend.exception.BadRequestException;
 import com.example.backend.exception.ResourceNotFoundException;
@@ -22,6 +25,7 @@ import com.example.backend.repository.CommentRepository;
 import com.example.backend.repository.ProjectRepository;
 import com.example.backend.repository.TaskRepository;
 import com.example.backend.repository.UserRepository;
+import com.example.backend.service.ActivityLogService;
 import com.example.backend.service.TaskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +41,13 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class TaskServiceImpl implements TaskService {
@@ -57,6 +67,8 @@ public class TaskServiceImpl implements TaskService {
     private CommentRepository commentRepository;
     @Autowired
     private ApplicationEventPublisher publisher;
+    @Autowired
+    private ActivityLogService activityLogService;
     private User getCurrentUser() {
         Object principal = SecurityContextHolder
                 .getContext()
@@ -148,8 +160,8 @@ public class TaskServiceImpl implements TaskService {
 
         taskRepository.save(task);
         log.info("Task created: id={}, title={}, assignedTo={}, project={}", task.getId(), task.getTitle(), assignedUser.getEmail(), project.getName());
+        activityLogService.log(currentUser, "created task", "TASK", task.getId(), task.getTitle(), project.getId(), project.getName());
 
-        // notify assigned user via async email
         publisher.publishEvent(new TaskAssignedEvent(assignedUser.getEmail(), task.getTitle(), project.getName()));
     }
 
@@ -376,7 +388,16 @@ public class TaskServiceImpl implements TaskService {
         if (isEmployee && request.getStatus() != null && task.getProject().getManager() != null) {
             String managerEmail = task.getProject().getManager().getEmail();
             log.info("Task status updated by employee: taskId={}, updatedBy={}, newStatus={}, notifyingManager={}", taskId, currentUser.getEmail(), task.getStatus(), managerEmail);
+            activityLogService.log(currentUser, "updated task status to " + task.getStatus().name(), "TASK", task.getId(), task.getTitle(),
+                    task.getProject().getId(), task.getProject().getName());
             publisher.publishEvent(new TaskUpdatedEvent(managerEmail, task.getTitle(), task.getStatus().name()));
+        }
+
+        // log manager activity too
+        if (!isEmployee && request.getStatus() != null) {
+            activityLogService.log(currentUser, "updated task status to " + task.getStatus().name(), "TASK", task.getId(), task.getTitle(),
+                    task.getProject() != null ? task.getProject().getId() : null,
+                    task.getProject() != null ? task.getProject().getName() : null);
         }
     }
 
@@ -410,18 +431,15 @@ public class TaskServiceImpl implements TaskService {
         commentRepository.deleteByTaskId(taskId);
         taskRepository.delete(task);
         log.info("Task deleted: id={}, title={}, deletedBy={}", taskId, taskTitle, currentUser.getEmail());
+        activityLogService.log(currentUser, "deleted task", "TASK", taskId, taskTitle,
+                task.getProject() != null ? task.getProject().getId() : null,
+                task.getProject() != null ? task.getProject().getName() : null);
 
         if (assignedEmail != null) {
             publisher.publishEvent(new TaskDeletedEvent(assignedEmail, taskTitle));
         }
     }
 
-    @Cacheable(
-            value = "tasks",
-            key = "#page + '-' + #size + '-' + #projectId + '-' + #status + '-' + " +
-                    "T(org.springframework.security.core.context.SecurityContextHolder)" +
-                    ".getContext().getAuthentication().getName()"
-    )
     @Override
     public PaginationResponse<TaskResponse> getTasks(
             int page, int size, Long projectId, String status) {
@@ -444,9 +462,15 @@ public class TaskServiceImpl implements TaskService {
 
         if ("EMPLOYEE".equals(role)) {
 
-            taskPage = statusEnum != null
-                    ? taskRepository.findByAssignedToIdAndStatus(currentUser.getId(), statusEnum, pageable)
-                    : taskRepository.findByAssignedToId(currentUser.getId(), pageable);
+            if (projectId != null) {
+                taskPage = statusEnum != null
+                        ? taskRepository.findByAssignedToIdAndProjectIdAndStatus(currentUser.getId(), projectId, statusEnum, pageable)
+                        : taskRepository.findByAssignedToIdAndProjectId(currentUser.getId(), projectId, pageable);
+            } else {
+                taskPage = statusEnum != null
+                        ? taskRepository.findByAssignedToIdAndStatus(currentUser.getId(), statusEnum, pageable)
+                        : taskRepository.findByAssignedToId(currentUser.getId(), pageable);
+            }
 
         } else if ("MANAGER".equals(role)) {
 
@@ -506,5 +530,82 @@ public class TaskServiceImpl implements TaskService {
 
                 taskPage.getTotalPages()
         );
+    }
+
+    @Override
+    public ManagerDashboardStatsResponse getManagerDashboardStats() {
+        User currentUser = getCurrentUser();
+        if (!"MANAGER".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
+
+        List<Project> projects = projectRepository.findByManagerId(currentUser.getId());
+        int activeProjects = projects.size();
+
+        long pendingTasks = taskRepository.countByManagerIdAndStatus(currentUser.getId(), Status.TODO);
+
+        LocalDateTime startOfWeek = LocalDateTime.now()
+            .with(DayOfWeek.MONDAY).withHour(0).withMinute(0).withSecond(0);
+        LocalDateTime endOfWeek = LocalDateTime.now();
+        long completedThisWeek = taskRepository.countByManagerIdAndStatusAndDateRange(
+            currentUser.getId(), Status.DONE, startOfWeek, endOfWeek);
+
+        List<User> employees = userRepository.findByRole(Role.EMPLOYEE);
+        int teamMembers = employees.size();
+
+        return new ManagerDashboardStatsResponse(
+            activeProjects, (int) pendingTasks, (int) completedThisWeek, teamMembers,
+            "+0 this month", "+0 this month", "+5%"
+        );
+    }
+
+    @Override
+    public List<TaskCompletionTrendPoint> getCompletionTrend(int days) {
+        User currentUser = getCurrentUser();
+        if (!"MANAGER".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
+
+        LocalDateTime from = LocalDateTime.now().minusDays(days);
+        List<Object[]> raw = taskRepository.findCompletionTrendForManager(currentUser.getId(), from);
+
+        Map<String, Integer> countMap = new LinkedHashMap<>();
+        for (Object[] row : raw) {
+            String date = row[0].toString().substring(0, 10);
+            countMap.put(date, ((Number) row[1]).intValue());
+        }
+
+        List<TaskCompletionTrendPoint> result = new ArrayList<>();
+        for (int i = days - 1; i >= 0; i--) {
+            String date = LocalDate.now().minusDays(i).toString();
+            result.add(new TaskCompletionTrendPoint(date, countMap.getOrDefault(date, 0)));
+        }
+        return result;
+    }
+
+    @Override
+    public PaginationResponse<TaskResponse> getManagerTasks(int page, int size, Long projectId, String status, String priority, Long assignedTo) {
+        User currentUser = getCurrentUser();
+        if (!"MANAGER".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+
+        Status statusEnum = null;
+        if (status != null && !status.isBlank()) {
+            try { statusEnum = Status.valueOf(status.toUpperCase()); }
+            catch (IllegalArgumentException e) { throw new BadRequestException("Invalid status"); }
+        }
+
+        Priority priorityEnum = null;
+        if (priority != null && !priority.isBlank()) {
+            try { priorityEnum = Priority.valueOf(priority.toUpperCase()); }
+            catch (IllegalArgumentException e) { throw new BadRequestException("Invalid priority"); }
+        }
+
+        Page<Task> taskPage = taskRepository.findManagerTasksFiltered(
+            currentUser.getId(), statusEnum, priorityEnum, projectId, assignedTo, pageable);
+
+        List<TaskResponse> taskList = taskPage.getContent().stream()
+            .map(t -> mapToResponse(t, t.getAssignedTo() != null && t.getAssignedTo().getId().equals(currentUser.getId()) ? "MY_TASK" : "TEAM_TASK"))
+            .toList();
+
+        return new PaginationResponse<>(taskList, taskPage.getNumber(), taskPage.getSize(),
+            taskPage.getTotalElements(), taskPage.getTotalPages());
     }
 }

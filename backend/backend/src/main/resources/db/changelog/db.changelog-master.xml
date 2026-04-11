@@ -10,5 +10,7 @@
     <include file="db/changelog/changes/001-create-indexes.xml"/>
     <include file="db/changelog/changes/002-add-new-column.xml"/>
     <include file="db/changelog/changes/003-add-new-constraint.xml"/>
+    <include file="db/changelog/changes/004-create-activity-logs.xml"/>
+    <include file="db/changelog/changes/005-activity-log-project-context.xml"/>
 
 </databaseChangeLog>

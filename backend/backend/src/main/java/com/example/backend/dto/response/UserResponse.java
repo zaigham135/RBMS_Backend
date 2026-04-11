@@ -18,4 +18,5 @@ public class UserResponse implements Serializable {
     private String status;
     private String profilePhoto;
     private LocalDateTime createdAt;
+    private String designation;
 }

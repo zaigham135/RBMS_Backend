@@ -36,3 +36,8 @@ build/
 .env
 *.env
 !.env.example
+
+### Google Credentials ###
+config/google-credentials.json
+**/google-credentials.json
+google-credentials.json

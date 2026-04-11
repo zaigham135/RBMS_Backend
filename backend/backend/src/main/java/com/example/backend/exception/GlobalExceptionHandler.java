@@ -131,6 +131,13 @@ public class GlobalExceptionHandler {
         return new ErrorResponse("error", "Endpoint not found", LocalDateTime.now());
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleMaxUploadSize(org.springframework.web.multipart.MaxUploadSizeExceededException ex) {
+        log.warn("File upload size exceeded: {}", ex.getMessage());
+        return new ErrorResponse("error", "File size exceeds the maximum allowed limit of 20MB. Please upload a smaller file.", LocalDateTime.now());
+    }
+
     // 500 - catch all (always keep this last)
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)

@@ -6,6 +6,7 @@ import com.example.backend.dto.request.CreateProjectRequest;
 import com.example.backend.dto.request.UpdateProjectRequest;
 import com.example.backend.dto.response.PaginationResponse;
 import com.example.backend.dto.response.ProjectListResponse;
+import com.example.backend.dto.response.ProjectMemberResponse;
 import com.example.backend.dto.response.ProjectResponse;
 import com.example.backend.event.ProjectAssignedEvent;
 import com.example.backend.event.ProjectDeletedEvent;
@@ -15,6 +16,7 @@ import com.example.backend.exception.ResourceNotFoundException;
 import com.example.backend.exception.UnauthorizedException;
 import com.example.backend.repository.ProjectRepository;
 import com.example.backend.repository.UserRepository;
+import com.example.backend.service.ActivityLogService;
 import com.example.backend.service.ProjectService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,7 +44,13 @@ public class ProjectServiceImpl implements ProjectService {
     private UserRepository userRepository;
 
     @Autowired
+    private com.example.backend.repository.TaskRepository taskRepository;
+
+    @Autowired
     private ApplicationEventPublisher publisher;
+
+    @Autowired
+    private ActivityLogService activityLogService;
 
     private User getCurrentUser() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -54,7 +62,16 @@ public class ProjectServiceImpl implements ProjectService {
     }
 
     private ProjectResponse mapToResponse(Project p) {
-        return new ProjectResponse(
+        java.util.List<ProjectMemberResponse> members = taskRepository
+                .findDistinctAssigneesByProjectId(p.getId())
+                .stream()
+                .map(u -> new ProjectMemberResponse(
+                        u.getId(), u.getName(), u.getEmail(),
+                        u.getProfilePhoto(), u.getRole() != null ? u.getRole().name() : null
+                ))
+                .collect(java.util.stream.Collectors.toList());
+
+        ProjectResponse response = new ProjectResponse(
                 p.getId(), p.getName(), p.getDescription(),
                 p.getManager() != null ? p.getManager().getId() : null,
                 p.getManager() != null ? p.getManager().getName() : null,
@@ -62,6 +79,9 @@ public class ProjectServiceImpl implements ProjectService {
                 p.getManager() != null ? p.getManager().getProfilePhoto() : null,
                 p.getDueDate()
         );
+        response.setStatus(p.getStatus() != null ? p.getStatus() : "ACTIVE");
+        response.setMembers(members);
+        return response;
     }
 
     @CacheEvict(value = "projects", allEntries = true)
@@ -98,6 +118,7 @@ public class ProjectServiceImpl implements ProjectService {
 
         projectRepository.save(project);
         log.info("Project created: id={}, name={}, managerId={}", project.getId(), project.getName(), manager.getId());
+        activityLogService.log(getCurrentUser(), "created project", "PROJECT", project.getId(), project.getName());
 
         publisher.publishEvent(new ProjectAssignedEvent(manager.getEmail(), project.getName()));
     }
@@ -120,16 +141,26 @@ public class ProjectServiceImpl implements ProjectService {
 
         if (request.getName() != null) project.setName(request.getName());
         if (request.getDescription() != null) project.setDescription(request.getDescription());
-        // only ADMIN can update due date
+        // only ADMIN can update due date and status
         if (request.getDueDate() != null) {
             if (!"ADMIN".equals(currentUser.getRole().name())) {
                 throw new UnauthorizedException("Only admin can update project due date");
             }
             project.setDueDate(request.getDueDate());
         }
+        if (request.getStatus() != null) {
+            if (!"ADMIN".equals(currentUser.getRole().name())) {
+                throw new UnauthorizedException("Only admin can update project status");
+            }
+            if (!"ACTIVE".equals(request.getStatus()) && !"ON_HOLD".equals(request.getStatus())) {
+                throw new BadRequestException("Invalid status. Allowed: ACTIVE, ON_HOLD");
+            }
+            project.setStatus(request.getStatus());
+        }
 
         projectRepository.save(project);
         log.info("Project updated: id={}, name={}", project.getId(), project.getName());
+        activityLogService.log(getCurrentUser(), "updated project", "PROJECT", project.getId(), project.getName());
 
         publisher.publishEvent(new ProjectUpdatedEvent(project.getManager().getEmail(), project.getName()));
     }
@@ -154,39 +185,36 @@ public class ProjectServiceImpl implements ProjectService {
 
         projectRepository.delete(project);
         log.info("Project deleted: id={}, name={}", projectId, projectName);
+        activityLogService.log(getCurrentUser(), "deleted project", "PROJECT", projectId, projectName);
 
         if (managerEmail != null) {
             publisher.publishEvent(new ProjectDeletedEvent(managerEmail, projectName));
         }
     }
 
-    @Cacheable(value = "projects",
-            key = "'all-' + T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName()")
     @Override
     public ProjectListResponse getAllProjects() {
-        log.debug("Fetching all projects (cache miss)");
+        log.debug("Fetching all projects");
         User currentUser = getCurrentUser();
         if (!"ADMIN".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
 
-        List<ProjectResponse> list = projectRepository.findAll().stream().map(this::mapToResponse).toList();
+        List<ProjectResponse> list = projectRepository.findAllDistinct().stream().map(this::mapToResponse).toList();
         log.debug("Fetched {} projects", list.size());
         return new ProjectListResponse(list);
     }
 
-    @Cacheable(value = "projects",
-            key = "'manager-' + T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName()")
     @Override
     public ProjectListResponse getProjectsForManager() {
-        log.debug("Fetching projects for manager (cache miss)");
+        log.debug("Fetching projects for manager");
         User currentUser = getCurrentUser();
         if (!"MANAGER".equals(currentUser.getRole().name())) throw new UnauthorizedException("Access denied");
 
-        List<ProjectResponse> list = projectRepository.findByManagerId(currentUser.getId()).stream().map(this::mapToResponse).toList();
+        List<ProjectResponse> list = projectRepository.findByManagerId(currentUser.getId())
+                .stream().map(this::mapToResponse).toList();
         log.debug("Fetched {} projects for managerId={}", list.size(), currentUser.getId());
         return new ProjectListResponse(list);
     }
 
-    @Cacheable(value = "projects", key = "'by-manager-' + #managerId")
     @Override
     public ProjectListResponse getProjectsByManager(Long managerId) {
         log.debug("Fetching projects by managerId={} (cache miss)", managerId);

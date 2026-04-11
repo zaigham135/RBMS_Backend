@@ -9,4 +9,5 @@ public class UpdateProjectRequest {
     private String description;
     @JsonFormat(pattern = "yyyy-MM-dd")
     private java.time.LocalDate dueDate;
+    private String status; // ACTIVE or ON_HOLD — admin only
 }

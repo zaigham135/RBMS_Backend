@@ -52,6 +52,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/manager/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/user/**").hasAnyRole("ADMIN", "MANAGER", "EMPLOYEE")
                         .requestMatchers("/api/tasks/**").authenticated()
+                        .requestMatchers("/api/calendar/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .oauth2Login(oauth2 -> oauth2

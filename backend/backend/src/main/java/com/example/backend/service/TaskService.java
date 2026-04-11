@@ -2,9 +2,13 @@ package com.example.backend.service;
 
 import com.example.backend.dto.request.CreateTaskRequest;
 import com.example.backend.dto.request.UpdateTaskRequest;
+import com.example.backend.dto.response.ManagerDashboardStatsResponse;
 import com.example.backend.dto.response.PaginationResponse;
+import com.example.backend.dto.response.TaskCompletionTrendPoint;
 import com.example.backend.dto.response.TaskDetailsResponse;
 import com.example.backend.dto.response.TaskResponse;
+
+import java.util.List;
 
 public interface TaskService {
     void createTask(CreateTaskRequest request);
@@ -21,4 +25,7 @@ public interface TaskService {
             Long projectId,
             String status
     );
+    List<TaskCompletionTrendPoint> getCompletionTrend(int days);
+    PaginationResponse<TaskResponse> getManagerTasks(int page, int size, Long projectId, String status, String priority, Long assignedTo);
+    ManagerDashboardStatsResponse getManagerDashboardStats();
 }

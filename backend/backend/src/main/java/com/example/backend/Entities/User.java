@@ -38,5 +38,11 @@ public class User {
 
     private String status = "ACTIVE";
 
+    @Column(nullable = true)
+    private String department;
+
+    @Column(nullable = true)
+    private String designation;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 }

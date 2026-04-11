@@ -34,4 +34,8 @@ public class Project {
     private LocalDateTime createdAt = LocalDateTime.now();
 
     private java.time.LocalDate dueDate;
+
+    // ACTIVE or ON_HOLD — settable by admin only
+    @Column(nullable = false, columnDefinition = "varchar(255) default 'ACTIVE'")
+    private String status = "ACTIVE";
 }
