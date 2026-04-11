@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!-- Future changes -->
+    <changeSet id="1" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="projects" columnName="due_date"/></not>
+        </preConditions>
+        <addColumn tableName="projects">
+            <column name="due_date" type="DATE"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="projects" columnName="due_date"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

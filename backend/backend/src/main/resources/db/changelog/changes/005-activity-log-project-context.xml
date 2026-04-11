@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="1" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="activity_logs" columnName="project_name"/></not>
+        </preConditions>
+        <addColumn tableName="activity_logs">
+            <column name="project_name" type="VARCHAR(255)"/>
+            <column name="project_id" type="BIGINT"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="activity_logs" columnName="project_name"/>
+            <dropColumn tableName="activity_logs" columnName="project_id"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

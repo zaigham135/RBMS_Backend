@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!-- USERS -->
+    <changeSet id="1" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_users_email"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_users_email"
+                     tableName="users">
+            <column name="email"/>
+        </createIndex>
+        <rollback>
+            <dropIndex indexName="idx_users_email" tableName="users"/>
+        </rollback>
+    </changeSet>
+
+    <!-- PROJECTS -->
+    <changeSet id="2" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_projects_manager_id"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_projects_manager_id"
+                     tableName="projects">
+            <column name="manager_id"/>
+        </createIndex>
+        <rollback>
+            <dropIndex indexName="idx_projects_manager_id" tableName="projects"/>
+        </rollback>
+    </changeSet>
+
+    <!-- TASKS -->
+    <changeSet id="3" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_tasks_assigned_to"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_tasks_assigned_to"
+                     tableName="tasks">
+            <column name="assigned_to"/>
+        </createIndex>
+        <rollback>
+            <dropIndex indexName="idx_tasks_assigned_to" tableName="tasks"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="4" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_tasks_project_id"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_tasks_project_id"
+                     tableName="tasks">
+            <column name="project_id"/>
+        </createIndex>
+        <rollback>
+            <dropIndex indexName="idx_tasks_project_id" tableName="tasks"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="5" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_tasks_status"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_tasks_status"
+                     tableName="tasks">
+            <column name="status"/>
+        </createIndex>
+        <rollback>
+            <dropIndex indexName="idx_tasks_status" tableName="tasks"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="6" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_tasks_created_at"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_tasks_created_at"
+                     tableName="tasks">
+            <column name="created_at"/>
+        </createIndex>
+        <rollback>
+            <dropIndex indexName="idx_tasks_created_at" tableName="tasks"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="7" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_tasks_project_status"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_tasks_project_status"
+                     tableName="tasks">
+            <column name="project_id"/>
+            <column name="status"/>
+        </createIndex>
+        <rollback>
+            <dropIndex indexName="idx_tasks_project_status" tableName="tasks"/>
+        </rollback>
+    </changeSet>
+
+    <!-- COMMENTS -->
+    <changeSet id="8" author="samad">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_comments_task_id"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_comments_task_id"
+                     tableName="comments">
+            <column name="task_id"/>
+        </createIndex>
+        <rollback>
+            <dropIndex indexName="idx_comments_task_id" tableName="comments"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
