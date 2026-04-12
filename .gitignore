@@ -2,10 +2,31 @@
 .env
 *.env
 !.env.example
+.env.local
+.env.*.local
 
 # Secrets and credentials
 **/google-credentials.json
 **/*credentials*.json
+**/*secret*.json
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+**/secrets/
+**/credentials/
+*.crt
+*.cer
+
+# AWS Credentials
+.aws/
+**/.aws/
+**/aws-credentials*
+
+# Deployment Scripts with Sensitive Data
+**/set-env*.ps1
+**/set-env*.sh
 
 # Maven
 target/
@@ -28,11 +49,39 @@ buildNumber.properties
 .settings/
 .classpath
 .project
+*.swp
+*.swo
+*~
 
 # Logs
 *.log
 logs/
+*.log.*
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Temporary Files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Elastic Beanstalk
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
+*.zip
+
+# Build artifacts
+*.jar
+*.war
+*.ear
+*.class

@@ -36,8 +36,54 @@ build/
 .env
 *.env
 !.env.example
+.env.local
+.env.*.local
 
-### Google Credentials ###
+### Secrets and Credentials ###
 config/google-credentials.json
 **/google-credentials.json
 google-credentials.json
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+**/secrets/
+**/credentials/
+
+### AWS Deployment ###
+eb-deploy-temp/*.jar
+eb-deploy-temp/application.jar
+*.zip
+
+### Elastic Beanstalk Files ###
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
+
+### Logs ###
+*.log
+logs/
+*.log.*
+
+### Temporary Files ###
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+### OS Files ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### Database ###
+*.db
+*.sqlite
+*.sqlite3
+
+### Backup Files ###
+*.bak
+*.backup
+*~

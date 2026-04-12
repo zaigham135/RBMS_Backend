@@ -1,0 +1,9 @@
+branch-defaults:
+  default:
+    environment: taskmanagement-backend-prod
+    group_suffix: null
+global:
+  application_name: taskmanagement-backend
+  default_platform: Corretto 17 running on 64bit Amazon Linux 2023
+  default_region: eu-north-1
+  sc: null
