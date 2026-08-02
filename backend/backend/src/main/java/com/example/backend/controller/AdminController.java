@@ -32,6 +32,7 @@ public class AdminController {
     @Autowired private UserRepository userRepository;
     @Autowired private ProjectRepository projectRepository;
     @Autowired private DesignationRepository designationRepository;
+    @Autowired private com.example.backend.service.EmailService emailSvc;
 
     @GetMapping
     public ApiResponse<String> adminAccess() {
@@ -158,9 +159,31 @@ public class AdminController {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         if (user.getRole() == Role.ADMIN)
             throw new BadRequestException("Cannot assign designation to admin users");
-        String designation = body.get("designation"); // null or empty = clear
-        user.setDesignation((designation == null || designation.isBlank()) ? null : designation.trim());
+        String oldDesignation = user.getDesignation();
+        String designation = body.get("designation");
+        String newDesignation = (designation == null || designation.isBlank()) ? null : designation.trim();
+        user.setDesignation(newDesignation);
         userRepository.save(user);
+
+        // Send email notification
+        String prevLabel = oldDesignation != null ? oldDesignation : "None";
+        String newLabel  = newDesignation  != null ? newDesignation  : "None";
+        String content = emailSvc.buildInfoBox(
+            "Account",              "<strong>" + user.getName() + "</strong>",
+            "Email",                user.getEmail(),
+            "Previous Designation", prevLabel,
+            "New Designation",      newDesignation != null ? emailSvc.buildBadge(newDesignation, "#a78bfa") : "<em>Cleared</em>"
+        );
+        String html = emailSvc.buildHtml(
+            newDesignation != null ? "Your designation has been updated" : "Your designation has been cleared",
+            newDesignation != null
+                ? "An administrator has assigned you a new designation on the TaskMan platform."
+                : "An administrator has removed your designation on the TaskMan platform.",
+            content,
+            "If you believe this change was made in error, please contact your system administrator."
+        );
+        emailSvc.sendTaskUpdateEmail(user.getEmail(), "Designation Updated — TaskMan", html);
+
         return new ApiResponse<>("success", "Designation updated", null);
     }
 }

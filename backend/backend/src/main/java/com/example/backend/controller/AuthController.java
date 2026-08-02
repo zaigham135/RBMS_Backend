@@ -1,6 +1,8 @@
 package com.example.backend.controller;
 
 import com.example.backend.Entities.User;
+import com.example.backend.dto.request.LoginRequest;
+import com.example.backend.dto.request.SignupRequest;
 import com.example.backend.dto.response.ApiResponse;
 import com.example.backend.enums.Role;
 import com.example.backend.exception.BadRequestException;
@@ -10,6 +12,7 @@ import com.example.backend.service.EmailService;
 import com.example.backend.service.ImageKitService;
 import com.example.backend.service.OtpService;
 import com.example.backend.util.JwtUtil;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -31,14 +34,14 @@ public class AuthController {
 
     // ── Signup ────────────────────────────────────────────────────────────────
     @PostMapping("/signup")
-    public ApiResponse<Void> signup(@RequestBody User user) {
-        if (userRepository.findByEmail(user.getEmail()).isPresent()) {
+    public ApiResponse<Void> signup(@Valid @RequestBody SignupRequest request) {
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
             throw new BadRequestException("Email already exists");
         }
-        if (user.getPassword() == null || user.getPassword().isBlank()) {
-            throw new BadRequestException("Password is required");
-        }
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        User user = new User();
+        user.setName(request.getName());
+        user.setEmail(request.getEmail().trim().toLowerCase());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(Role.EMPLOYEE);
         userRepository.save(user);
         return new ApiResponse<>("success", "User registered successfully", null);
@@ -46,10 +49,10 @@ public class AuthController {
 
     // ── Login ─────────────────────────────────────────────────────────────────
     @PostMapping("/login")
-    public ApiResponse<Map<String, String>> login(@RequestBody User user) {
-        User existingUser = userRepository.findByEmail(user.getEmail())
+    public ApiResponse<Map<String, String>> login(@Valid @RequestBody LoginRequest request) {
+        User existingUser = userRepository.findByEmail(request.getEmail().trim().toLowerCase())
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with this email"));
-        if (!passwordEncoder.matches(user.getPassword(), existingUser.getPassword())) {
+        if (!passwordEncoder.matches(request.getPassword(), existingUser.getPassword())) {
             throw new BadRequestException("Invalid email or password");
         }
         if ("INACTIVE".equals(existingUser.getStatus())) {
@@ -78,24 +81,7 @@ public class AuthController {
 
         String otp = otpService.generateOtp(email.trim().toLowerCase());
 
-        String subject = "🔐 TaskMan — Password Reset OTP";
-        String emailBody = String.format("""
-                Hello,
-
-                You requested a password reset for your TaskMan account.
-
-                Your OTP code is:
-
-                    %s
-
-                This code expires in 10 minutes. Do not share it with anyone.
-
-                If you did not request this, please ignore this email.
-
-                — TaskMan Security
-                """, otp);
-
-        emailService.sendTaskUpdateEmail(email.trim().toLowerCase(), subject, emailBody);
+        emailService.sendOtpEmail(email.trim().toLowerCase(), otp);
 
         return new ApiResponse<>("success", "OTP sent to your registered email address", null);
     }

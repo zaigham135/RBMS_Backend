@@ -30,6 +30,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
@@ -139,6 +140,12 @@ public class ProjectServiceImpl implements ProjectService {
             throw new UnauthorizedException("Access denied");
         }
 
+        // Capture old values before applying changes
+        String oldName        = project.getName();
+        String oldDescription = project.getDescription();
+        LocalDate oldDueDate  = project.getDueDate();
+        String oldStatus      = project.getStatus();
+
         if (request.getName() != null) project.setName(request.getName());
         if (request.getDescription() != null) project.setDescription(request.getDescription());
         // only ADMIN can update due date and status
@@ -162,7 +169,22 @@ public class ProjectServiceImpl implements ProjectService {
         log.info("Project updated: id={}, name={}", project.getId(), project.getName());
         activityLogService.log(getCurrentUser(), "updated project", "PROJECT", project.getId(), project.getName());
 
-        publisher.publishEvent(new ProjectUpdatedEvent(project.getManager().getEmail(), project.getName()));
+        // Build change map — only include fields that actually changed
+        String updaterName = currentUser.getName() + " (" + currentUser.getRole().name() + ")";
+        ProjectUpdatedEvent.Builder evtBuilder = ProjectUpdatedEvent.builder(
+                project.getManager().getEmail(), project.getName(), updaterName)
+            .name(oldName, request.getName())
+            .description(
+                request.getDescription() != null && !request.getDescription().equals(oldDescription)
+                    ? request.getDescription() : null)
+            .dueDate(
+                request.getDueDate() != null && !request.getDueDate().equals(oldDueDate)
+                    ? request.getDueDate() : null)
+            .status(
+                request.getStatus() != null && !request.getStatus().equals(oldStatus)
+                    ? request.getStatus() : null);
+
+        publisher.publishEvent(evtBuilder.build());
     }
 
     @CacheEvict(value = "projects", allEntries = true)

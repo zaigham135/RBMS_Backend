@@ -37,6 +37,7 @@ public class TaskResponse implements Serializable {
     private String assignedToName;
     private String assignedToEmail;
     private String assignedToPhoto;
+    private String assignedToRole;
 
     // created by info
     private Long createdById;

@@ -19,4 +19,13 @@ public class EmployeeWithWorkloadResponse {
     private int workloadPercent;
     private String department;
     private List<String> activeProjects;
+    private List<ProjectInfo> projectDetails;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProjectInfo {
+        private String name;
+        private String status; // ACTIVE, ON_HOLD, COMPLETED
+    }
 }

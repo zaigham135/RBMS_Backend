@@ -138,32 +138,33 @@ public class GlobalExceptionHandler {
         return new ErrorResponse("error", "File size exceeds the maximum allowed limit of 20MB. Please upload a smaller file.", LocalDateTime.now());
     }
 
+    // 429 - rate limit exceeded
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(org.springframework.web.server.ResponseStatusException ex) {
+        return ResponseEntity.status(ex.getStatusCode())
+                .body(new ErrorResponse("error", ex.getReason(), LocalDateTime.now()));
+    }
+
+    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public ErrorResponse handleDatabaseException(org.springframework.dao.DataAccessException ex) {
+        log.error("Database error: {}", ex.getMessage());
+        return new ErrorResponse("error", "Database error occurred", LocalDateTime.now());
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotWritableException.class)
+    public ResponseEntity<ErrorResponse> handleSerialization(Exception ex) {
+        return new ResponseEntity<>(
+                new ErrorResponse("error", "Response serialization failed", LocalDateTime.now()),
+                HttpStatus.INTERNAL_SERVER_ERROR
+        );
+    }
+
     // 500 - catch all (always keep this last)
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorResponse handleGlobal(Exception ex) {
         log.error("Unhandled exception: {}", ex.getMessage(), ex);
         return new ErrorResponse("error", "An internal server error occurred", LocalDateTime.now());
-    }
-    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ErrorResponse handleDatabaseException(Exception ex) {
-        return new ErrorResponse(
-                "error",
-                "Database error occurred",
-                java.time.LocalDateTime.now()
-        );
-    }
-    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotWritableException.class)
-    public ResponseEntity<ErrorResponse> handleSerialization(Exception ex) {
-
-        return new ResponseEntity<>(
-                new ErrorResponse(
-                        "error",
-                        "Response serialization failed",
-                        LocalDateTime.now()
-                ),
-                HttpStatus.INTERNAL_SERVER_ERROR
-        );
     }
 }

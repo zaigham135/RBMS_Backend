@@ -28,6 +28,14 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     @Autowired
     private JwtUtil jwtUtil;
 
+    @org.springframework.beans.factory.annotation.Value("${frontend.url:http://localhost:3000}")
+    private String frontendUrl;
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        log.info("OAuth2SuccessHandler initialized with frontendUrl={}", frontendUrl);
+    }
+
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request,
                                         HttpServletResponse response,
@@ -88,7 +96,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         log.info("Google OAuth login successful: email={}, role={}", email, user.getRole());
 
         // Redirect to frontend with token
-        String redirectUrl = "http://localhost:3000/auth/callback"
+        String redirectUrl = frontendUrl + "/auth/callback"
                 + "?token=" + token
                 + "&role=" + user.getRole().name()
                 + "&name=" + java.net.URLEncoder.encode(user.getName(), "UTF-8")

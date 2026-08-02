@@ -1,7 +1,10 @@
 package com.example.backend.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.backend.repository.UserRepository;
 import com.example.backend.util.JwtUtil;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -9,6 +12,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -18,6 +23,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Map;
 
 @Component
 public class JwtFilter extends OncePerRequestFilter {
@@ -29,6 +35,8 @@ public class JwtFilter extends OncePerRequestFilter {
 
     @Autowired
     private UserRepository userRepository;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -50,8 +58,28 @@ public class JwtFilter extends OncePerRequestFilter {
         // Extract token
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             token = authHeader.substring(7);
-            email = jwtUtil.extractEmail(token);
-            log.debug("JWT token extracted for email={}", email);
+            try {
+                email = jwtUtil.extractEmail(token);
+                log.debug("JWT token extracted for email={}", email);
+            } catch (ExpiredJwtException e) {
+                log.warn("JWT token expired for request: {}", request.getRequestURI());
+                response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                objectMapper.writeValue(response.getWriter(), Map.of(
+                    "status", "error",
+                    "message", "Session expired. Please login again."
+                ));
+                return;
+            } catch (JwtException e) {
+                log.warn("Invalid JWT token: {}", e.getMessage());
+                response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                objectMapper.writeValue(response.getWriter(), Map.of(
+                    "status", "error",
+                    "message", "Invalid token. Please login again."
+                ));
+                return;
+            }
         } else {
             email = null;
             token = null;

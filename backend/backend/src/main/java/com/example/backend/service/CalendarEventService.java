@@ -114,76 +114,84 @@ public class CalendarEventService {
 
     @Async
     protected void sendEventInvitations(CalendarEvent event, User creator, List<User> attendees) {
-        String subject = "📅 Event Invitation: " + event.getTitle();
-        String body = buildInviteEmail(event, creator);
+        String subject = "Event Invitation: " + event.getTitle();
+        String html = buildInviteEmail(event, creator);
 
         for (User attendee : attendees) {
             if (!attendee.getId().equals(creator.getId())) {
-                emailService.sendTaskUpdateEmail(attendee.getEmail(), subject, body);
+                emailService.sendTaskUpdateEmail(attendee.getEmail(), subject, html);
                 log.info("Event invite sent to: {}", attendee.getEmail());
             }
         }
     }
 
     private String buildInviteEmail(CalendarEvent event, User creator) {
-        // Build meeting link section - make it prominent
-        String meetingSection = "";
+        String startFmt = event.getStartTime() != null
+                ? event.getStartTime().format(DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy  h:mm a"))
+                : "TBD";
+        String endFmt = event.getEndTime() != null
+                ? event.getEndTime().format(DateTimeFormatter.ofPattern("h:mm a"))
+                : "TBD";
+
+        // Build Google Calendar add-link
+        String gcalStart = event.getStartTime() != null
+                ? event.getStartTime().format(DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")) : "";
+        String gcalEnd = event.getEndTime() != null
+                ? event.getEndTime().format(DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")) : "";
+        String gcalLink = "https://calendar.google.com/calendar/render?action=TEMPLATE"
+                + "&text=" + encode(event.getTitle())
+                + "&dates=" + gcalStart + "/" + gcalEnd
+                + "&details=" + encode(event.getDescription() != null ? event.getDescription() : "")
+                + "&location=" + encode(event.getLocation() != null ? event.getLocation() : "");
+
+        // Info box rows
+        java.util.List<String> kvList = new java.util.ArrayList<>();
+        kvList.add("Event");     kvList.add("<strong>" + event.getTitle() + "</strong>");
+        kvList.add("Organizer"); kvList.add(creator.getName() + " &lt;" + creator.getEmail() + "&gt;");
+        kvList.add("Date &amp; Time"); kvList.add(startFmt + " – " + endFmt);
+        if (event.getLocation() != null && !event.getLocation().isBlank())
+            { kvList.add("Location"); kvList.add(event.getLocation()); }
+        if (event.getDescription() != null && !event.getDescription().isBlank())
+            { kvList.add("Description"); kvList.add(truncate(event.getDescription(), 200)); }
+
+        String infoBox = emailService.buildInfoBox(kvList.toArray(new String[0]));
+
+        // Meeting link button (if present)
+        String meetingBlock = "";
         if (event.getMeetingLink() != null && !event.getMeetingLink().isBlank()) {
-            meetingSection = String.format("""
-                
-                ═══════════════════════════════════════
-                🎥 JOIN MEETING NOW:
-                %s
-                ═══════════════════════════════════════
-                
-                """, event.getMeetingLink());
+            meetingBlock = "<div style='text-align:center;margin:20px 0 8px;'>"
+                + "<a href='" + event.getMeetingLink() + "' target='_blank' "
+                + "style='display:inline-block;background:#4c8cff;color:#ffffff;font-size:15px;"
+                + "font-weight:700;padding:14px 32px;border-radius:12px;text-decoration:none;"
+                + "letter-spacing:-0.2px;box-shadow:0 6px 20px rgba(76,140,255,0.4);'>"
+                + "&#127909; Join Meeting"
+                + "</a></div>";
         }
 
-        // Build Google Calendar "Add to Calendar" link
-        String startFormatted = event.getStartTime() != null
-                ? event.getStartTime().format(DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss"))
-                : "";
-        String endFormatted = event.getEndTime() != null
-                ? event.getEndTime().format(DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss"))
-                : "";
-        String googleCalLink = String.format(
-                "https://calendar.google.com/calendar/render?action=TEMPLATE&text=%s&dates=%s/%s&details=%s&location=%s",
-                java.net.URLEncoder.encode(event.getTitle(), java.nio.charset.StandardCharsets.UTF_8),
-                startFormatted, endFormatted,
-                java.net.URLEncoder.encode(event.getDescription() != null ? event.getDescription() : "", java.nio.charset.StandardCharsets.UTF_8),
-                java.net.URLEncoder.encode(event.getLocation() != null ? event.getLocation() : "", java.nio.charset.StandardCharsets.UTF_8)
+        // Add to Google Calendar link
+        String gcalBlock = "<div style='text-align:center;margin:12px 0 0;'>"
+                + "<a href='" + gcalLink + "' target='_blank' "
+                + "style='display:inline-block;border:1px solid #334155;color:#94a3b8;font-size:13px;"
+                + "font-weight:600;padding:10px 24px;border-radius:10px;text-decoration:none;'>"
+                + "&#128197; Add to Google Calendar"
+                + "</a></div>";
+
+        String content = infoBox + meetingBlock + gcalBlock;
+
+        return emailService.buildHtml(
+            "You&apos;re invited to an event",
+            creator.getName() + " has invited you to the following event on TaskMan.",
+            content,
+            "This event has been added to your TaskMan calendar. Log in to view all your upcoming events and meetings."
         );
+    }
 
-        return String.format("""
-            You have been invited to an event by %s.
-            %s
-            ─────────────────────────────────────
-            📅 Event: %s
-            👤 Organizer: %s (%s)
-            🕐 Start: %s
-            🕑 End: %s
-            📍 Location: %s
-            📝 Description: %s
-            ─────────────────────────────────────
+    private static String encode(String s) {
+        return java.net.URLEncoder.encode(s, java.nio.charset.StandardCharsets.UTF_8);
+    }
 
-            ➕ Add to Google Calendar:
-            %s
-
-            This event has been added to your TaskMan calendar.
-            Log in to TaskMan to view all your events.
-
-            — TaskMan Calendar
-            """,
-                creator.getName(),
-                meetingSection,
-                event.getTitle(),
-                creator.getName(), creator.getEmail(),
-                event.getStartTime() != null ? event.getStartTime().format(DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")) : "TBD",
-                event.getEndTime() != null ? event.getEndTime().format(DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")) : "TBD",
-                event.getLocation() != null ? event.getLocation() : "Not specified",
-                event.getDescription() != null ? event.getDescription() : "—",
-                googleCalLink
-        );
+    private static String truncate(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max) + "…";
     }
 
     public List<CalendarEventResponse> getMyEvents() {

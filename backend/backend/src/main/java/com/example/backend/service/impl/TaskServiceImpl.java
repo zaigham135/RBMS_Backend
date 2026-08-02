@@ -104,6 +104,7 @@ public class TaskServiceImpl implements TaskService {
                 task.getAssignedTo() != null ? task.getAssignedTo().getName() : null,
                 task.getAssignedTo() != null ? task.getAssignedTo().getEmail() : null,
                 task.getAssignedTo() != null ? task.getAssignedTo().getProfilePhoto() : null,
+                task.getAssignedTo() != null && task.getAssignedTo().getRole() != null ? task.getAssignedTo().getRole().name() : null,
                 task.getCreatedBy() != null ? task.getCreatedBy().getId() : null,
                 task.getCreatedBy() != null ? task.getCreatedBy().getName() : null,
                 task.getCreatedAt(),
@@ -384,18 +385,52 @@ public class TaskServiceImpl implements TaskService {
             commentRepository.save(comment);
         }
 
-        // notify manager only when an EMPLOYEE updates the task status
-        if (isEmployee && request.getStatus() != null && task.getProject().getManager() != null) {
-            String managerEmail = task.getProject().getManager().getEmail();
-            log.info("Task status updated by employee: taskId={}, updatedBy={}, newStatus={}, notifyingManager={}", taskId, currentUser.getEmail(), task.getStatus(), managerEmail);
-            activityLogService.log(currentUser, "updated task status to " + task.getStatus().name(), "TASK", task.getId(), task.getTitle(),
-                    task.getProject().getId(), task.getProject().getName());
-            publisher.publishEvent(new TaskUpdatedEvent(managerEmail, task.getTitle(), task.getStatus().name()));
-        }
+        // Fire notification for ANY change (status, description, dueDate, priority, comment)
+        boolean anyChange = request.getStatus() != null
+                || (request.getDescription() != null && !request.getDescription().isBlank())
+                || request.getDueDate() != null
+                || (request.getPriority() != null && !request.getPriority().isBlank())
+                || (request.getComment() != null && !request.getComment().isBlank());
 
-        // log manager activity too
-        if (!isEmployee && request.getStatus() != null) {
-            activityLogService.log(currentUser, "updated task status to " + task.getStatus().name(), "TASK", task.getId(), task.getTitle(),
+        if (anyChange) {
+            String taskTitle    = task.getTitle();
+            String projectName  = task.getProject() != null ? task.getProject().getName() : "—";
+            String updaterName  = currentUser.getName() + " (" + role + ")";
+
+            // Build the changes map — only include what was actually sent
+            TaskUpdatedEvent.Builder evtBuilder;
+
+            if (isEmployee) {
+                // Employee updated → notify the project manager
+                if (task.getProject() != null && task.getProject().getManager() != null) {
+                    String managerEmail = task.getProject().getManager().getEmail();
+                    evtBuilder = TaskUpdatedEvent.builder(managerEmail, taskTitle, projectName, updaterName)
+                            .status(request.getStatus())
+                            .description(request.getDescription())
+                            .dueDate(request.getDueDate())
+                            .priority(request.getPriority())
+                            .comment(request.getComment());
+                    log.info("Notifying manager={} of task update by employee={}", managerEmail, currentUser.getEmail());
+                    publisher.publishEvent(evtBuilder.build());
+                }
+            } else {
+                // Manager or Admin updated → notify the assigned employee
+                if (task.getAssignedTo() != null) {
+                    String assigneeEmail = task.getAssignedTo().getEmail();
+                    evtBuilder = TaskUpdatedEvent.builder(assigneeEmail, taskTitle, projectName, updaterName)
+                            .status(request.getStatus())
+                            .description(request.getDescription())
+                            .dueDate(request.getDueDate())
+                            .priority(request.getPriority())
+                            .comment(request.getComment());
+                    log.info("Notifying assignee={} of task update by {}={}", assigneeEmail, role, currentUser.getEmail());
+                    publisher.publishEvent(evtBuilder.build());
+                }
+            }
+
+            // Activity log
+            String changeDesc = buildChangeDescription(request);
+            activityLogService.log(currentUser, changeDesc, "TASK", task.getId(), taskTitle,
                     task.getProject() != null ? task.getProject().getId() : null,
                     task.getProject() != null ? task.getProject().getName() : null);
         }
@@ -577,6 +612,16 @@ public class TaskServiceImpl implements TaskService {
             result.add(new TaskCompletionTrendPoint(date, countMap.getOrDefault(date, 0)));
         }
         return result;
+    }
+
+    private String buildChangeDescription(UpdateTaskRequest req) {
+        List<String> parts = new ArrayList<>();
+        if (req.getStatus() != null)                                    parts.add("status to " + req.getStatus());
+        if (req.getPriority() != null && !req.getPriority().isBlank())  parts.add("priority to " + req.getPriority());
+        if (req.getDueDate() != null)                                   parts.add("due date to " + req.getDueDate());
+        if (req.getDescription() != null && !req.getDescription().isBlank()) parts.add("description");
+        if (req.getComment() != null && !req.getComment().isBlank())    parts.add("added comment");
+        return "updated task " + String.join(", ", parts);
     }
 
     @Override

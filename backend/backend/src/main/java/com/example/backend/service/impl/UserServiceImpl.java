@@ -13,6 +13,7 @@ import com.example.backend.exception.UnauthorizedException;
 import com.example.backend.repository.ProjectRepository;
 import com.example.backend.repository.TaskRepository;
 import com.example.backend.repository.UserRepository;
+import com.example.backend.service.EmailService;
 import com.example.backend.service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +38,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private ProjectRepository projectRepository;
+
+    @Autowired
+    private EmailService emailService;
 
     private User getCurrentUser() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -65,6 +69,8 @@ public class UserServiceImpl implements UserService {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        String oldRole = user.getRole().name();
         try {
             user.setRole(Role.valueOf(role.toUpperCase()));
         } catch (IllegalArgumentException e) {
@@ -73,6 +79,27 @@ public class UserServiceImpl implements UserService {
         }
         userRepository.save(user);
         log.info("Role updated: userId={}, role={}", userId, role.toUpperCase());
+
+        // Send notification email to the affected user
+        String roleColor = switch (role.toUpperCase()) {
+            case "ADMIN"    -> "#a78bfa";
+            case "MANAGER"  -> "#4c8cff";
+            default         -> "#4ade80";
+        };
+        String content = emailService.buildInfoBox(
+            "Account",   "<strong>" + user.getName() + "</strong>",
+            "Email",     user.getEmail(),
+            "Previous Role", emailService.buildBadge(oldRole, "#94a3b8"),
+            "New Role",  emailService.buildBadge(role.toUpperCase(), roleColor),
+            "Updated By", currentUser.getName() + " (Administrator)"
+        );
+        String html = emailService.buildHtml(
+            "Your account role has been updated",
+            "An administrator has changed your role on the TaskMan platform. Your access level has been updated accordingly.",
+            content,
+            "Please log in to your TaskMan dashboard to explore your updated permissions. If you believe this change was made in error, contact your system administrator."
+        );
+        emailService.sendTaskUpdateEmail(user.getEmail(), "Account Role Updated — TaskMan", html);
     }
 
     @Override
@@ -108,9 +135,32 @@ public class UserServiceImpl implements UserService {
         }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+        String oldStatus = user.getStatus();
         user.setStatus(status);
         userRepository.save(user);
         log.info("User status updated: userId={}, status={}", userId, status);
+
+        // Send notification email to the affected user
+        boolean isActivated = "ACTIVE".equals(status);
+        String statusColor = isActivated ? "#4ade80" : "#ef4444";
+        String content = emailService.buildInfoBox(
+            "Account",        "<strong>" + user.getName() + "</strong>",
+            "Email",          user.getEmail(),
+            "Previous Status", emailService.buildBadge(oldStatus != null ? oldStatus : "—", "#94a3b8"),
+            "New Status",     emailService.buildBadge(status, statusColor),
+            "Updated By",     currentUser.getName() + " (Administrator)"
+        );
+        String bodyText = isActivated
+            ? "Your TaskMan account has been reactivated. You can now log in and access your dashboard."
+            : "Your TaskMan account has been deactivated by an administrator. You will not be able to log in until your account is reactivated.";
+        String html = emailService.buildHtml(
+            isActivated ? "Your account has been activated" : "Your account has been deactivated",
+            bodyText,
+            content,
+            "If you believe this action was taken in error, please contact your system administrator immediately."
+        );
+        emailService.sendTaskUpdateEmail(user.getEmail(),
+            (isActivated ? "Account Activated" : "Account Deactivated") + " — TaskMan", html);
     }
 
     @Override
@@ -140,18 +190,25 @@ public class UserServiceImpl implements UserService {
         return employees.stream().map(emp -> {
             long inProgressCount = taskRepository.countByAssignedToIdAndStatus(emp.getId(), Status.IN_PROGRESS);
             int workload = (int) Math.min(100, (inProgressCount * 10));
-            List<String> activeProjects = taskRepository.findByAssignedToId(emp.getId(), PageRequest.of(0, 3))
+            List<EmployeeWithWorkloadResponse.ProjectInfo> projectDetails = taskRepository.findByAssignedToId(emp.getId(), PageRequest.of(0, 3))
                 .getContent().stream()
                 .filter(t -> t.getProject() != null && projectIds.contains(t.getProject().getId()))
-                .map(t -> t.getProject().getName())
+                .map(t -> t.getProject())
                 .distinct()
                 .limit(3)
+                .map(p -> new EmployeeWithWorkloadResponse.ProjectInfo(
+                    p.getName(),
+                    p.getStatus() != null ? p.getStatus() : "ACTIVE"
+                ))
+                .toList();
+            List<String> activeProjects = projectDetails.stream()
+                .map(EmployeeWithWorkloadResponse.ProjectInfo::getName)
                 .toList();
             return new EmployeeWithWorkloadResponse(
                 emp.getId(), emp.getName(), emp.getEmail(), emp.getRole().name(),
                 emp.getStatus(), emp.getProfilePhoto(), emp.getCreatedAt(),
                 workload, emp.getDepartment() != null ? emp.getDepartment() : "General",
-                activeProjects
+                activeProjects, projectDetails
             );
         }).toList();
     }
