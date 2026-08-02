@@ -33,6 +33,7 @@ public class SecurityConfig {
         config.setAllowedOriginPatterns(List.of(
             "http://localhost:*",
             "https://*.vercel.app",
+            "https://my-rbms.vercel.app",
             "https://rbms-backend-a0kk.onrender.com"
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
