@@ -8,12 +8,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
-import sibApi.TransactionalEmailsApi;
-import sibModel.CreateSmtpEmail;
-import sibModel.SendSmtpEmail;
-import sibModel.SendSmtpEmailSender;
-import sibModel.SendSmtpEmailTo;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.List;
 
 @Service
@@ -169,7 +168,6 @@ public class EmailService {
 
     private void sendHtml(String to, String subject, String html) {
         log.info("Sending email: to={}, subject={}", to, subject);
-        // Use Brevo HTTP API if key is configured (required on Render - SMTP is blocked)
         if (brevoApiKey != null && !brevoApiKey.isBlank()) {
             sendViaBrevoApi(to, subject, html);
         } else {
@@ -179,29 +177,39 @@ public class EmailService {
 
     private void sendViaBrevoApi(String to, String subject, String html) {
         try {
-            sibApi.ApiClient client = sibApi.Configuration.getDefaultApiClient();
-            client.setApiKey(brevoApiKey);
+            String plainText = html.replaceAll("<[^>]+>", "").replaceAll("\\s{2,}", " ").trim();
+            // Escape special characters for JSON
+            String escapedSubject = subject.replace("\\", "\\\\").replace("\"", "\\\"");
+            String escapedHtml    = html.replace("\\", "\\\\").replace("\"", "\\\"");
+            String escapedPlain   = plainText.replace("\\", "\\\\").replace("\"", "\\\"");
 
-            TransactionalEmailsApi apiInstance = new TransactionalEmailsApi();
+            String body = """
+                {
+                  "sender": { "email": "%s", "name": "TaskMan Notifications" },
+                  "to": [{ "email": "%s" }],
+                  "subject": "%s",
+                  "htmlContent": "%s",
+                  "textContent": "%s"
+                }
+                """.formatted(fromEmail, to, escapedSubject, escapedHtml, escapedPlain);
 
-            SendSmtpEmailSender sender = new SendSmtpEmailSender();
-            sender.setEmail(fromEmail);
-            sender.setName("TaskMan Notifications");
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.brevo.com/v3/smtp/email"))
+                .header("Content-Type", "application/json")
+                .header("api-key", brevoApiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
 
-            SendSmtpEmailTo recipient = new SendSmtpEmailTo();
-            recipient.setEmail(to);
+            HttpResponse<String> response = HttpClient.newHttpClient()
+                .send(request, HttpResponse.BodyHandlers.ofString());
 
-            SendSmtpEmail email = new SendSmtpEmail();
-            email.setSender(sender);
-            email.setTo(List.of(recipient));
-            email.setSubject(subject);
-            email.setHtmlContent(html);
-            email.setTextContent(html.replaceAll("<[^>]+>", "").replaceAll("\\s{2,}", " ").trim());
-
-            CreateSmtpEmail result = apiInstance.sendTransacEmail(email);
-            log.info("Email sent via Brevo API: to={}, messageId={}", to, result.getMessageId());
+            if (response.statusCode() == 201) {
+                log.info("Email sent via Brevo API: to={}", to);
+            } else {
+                log.error("Brevo API failed: status={}, body={}", response.statusCode(), response.body());
+            }
         } catch (Exception e) {
-            log.error("Brevo API email failed: to={}, subject={}, error={}", to, subject, e.getMessage(), e);
+            log.error("Brevo API email failed: to={}, error={}", to, e.getMessage(), e);
         }
     }
 
