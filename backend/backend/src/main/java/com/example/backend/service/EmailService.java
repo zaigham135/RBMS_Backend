@@ -8,6 +8,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import sibApi.TransactionalEmailsApi;
+import sibModel.CreateSmtpEmail;
+import sibModel.SendSmtpEmail;
+import sibModel.SendSmtpEmailSender;
+import sibModel.SendSmtpEmailTo;
+
+import java.util.List;
 
 @Service
 public class EmailService {
@@ -19,6 +26,9 @@ public class EmailService {
 
     @Value("${spring.mail.username}")
     private String fromEmail;
+
+    @Value("${brevo.api.key:}")
+    private String brevoApiKey;
 
     private static final String BRAND_COLOR  = "#4c8cff";
     private static final String DARK_BG      = "#0f172a";
@@ -159,6 +169,43 @@ public class EmailService {
 
     private void sendHtml(String to, String subject, String html) {
         log.info("Sending email: to={}, subject={}", to, subject);
+        // Use Brevo HTTP API if key is configured (required on Render - SMTP is blocked)
+        if (brevoApiKey != null && !brevoApiKey.isBlank()) {
+            sendViaBrevoApi(to, subject, html);
+        } else {
+            sendViaSMTP(to, subject, html);
+        }
+    }
+
+    private void sendViaBrevoApi(String to, String subject, String html) {
+        try {
+            sibApi.ApiClient client = sibApi.Configuration.getDefaultApiClient();
+            client.setApiKey(brevoApiKey);
+
+            TransactionalEmailsApi apiInstance = new TransactionalEmailsApi();
+
+            SendSmtpEmailSender sender = new SendSmtpEmailSender();
+            sender.setEmail(fromEmail);
+            sender.setName("TaskMan Notifications");
+
+            SendSmtpEmailTo recipient = new SendSmtpEmailTo();
+            recipient.setEmail(to);
+
+            SendSmtpEmail email = new SendSmtpEmail();
+            email.setSender(sender);
+            email.setTo(List.of(recipient));
+            email.setSubject(subject);
+            email.setHtmlContent(html);
+            email.setTextContent(html.replaceAll("<[^>]+>", "").replaceAll("\\s{2,}", " ").trim());
+
+            CreateSmtpEmail result = apiInstance.sendTransacEmail(email);
+            log.info("Email sent via Brevo API: to={}, messageId={}", to, result.getMessageId());
+        } catch (Exception e) {
+            log.error("Brevo API email failed: to={}, subject={}, error={}", to, subject, e.getMessage(), e);
+        }
+    }
+
+    private void sendViaSMTP(String to, String subject, String html) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -166,17 +213,15 @@ public class EmailService {
             helper.setReplyTo(fromEmail);
             helper.setTo(to);
             helper.setSubject(subject);
-            // Set both plain-text and HTML — improves deliverability
             String plainText = html.replaceAll("<[^>]+>", "").replaceAll("\\s{2,}", " ").trim();
             helper.setText(plainText, html);
-            // Add headers to reduce spam scoring
             message.addHeader("X-Mailer", "TaskMan-Notification-Service/1.0");
             message.addHeader("Precedence", "bulk");
             message.addHeader("Auto-Submitted", "auto-generated");
             mailSender.send(message);
-            log.info("Email sent successfully: to={}, subject={}", to, subject);
+            log.info("Email sent via SMTP: to={}, subject={}", to, subject);
         } catch (Exception e) {
-            log.error("Email failed: to={}, subject={}, error={}", to, subject, e.getMessage(), e);
+            log.error("SMTP email failed: to={}, subject={}, error={}", to, subject, e.getMessage(), e);
         }
     }
 }
